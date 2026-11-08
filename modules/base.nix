@@ -509,7 +509,9 @@ in
                   # Fail early if the product was not selected properly
                   test -n "$TARGET_PRODUCT" || exit 1
 
-                  export NINJA_ARGS="-j$NIX_BUILD_CORES ${toString ninjaArgs}"
+                  # "-j N", not "-jN": Android 17 builds with siso, whose Go flag parser
+                  # rejects the joined form (ninja accepts both).
+                  export NINJA_ARGS="-j $NIX_BUILD_CORES ${toString ninjaArgs}"
                   ${preBuild}
                   ${lib.optionalString (makeTargets != [ ]) "m ${toString makeTargets} | cat"}
                   ${postBuild}
