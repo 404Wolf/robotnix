@@ -37,6 +37,9 @@ let
         unzip
         pkgs.getopt
         which
+        # GNU coreutils ahead of toybox: Android 17's apexer runs `ls -lgG`
+        # (toybox ls has no -G) when re-signing erofs APEX payloads.
+        coreutils
         toybox
         vboot_reference
         util-linux
