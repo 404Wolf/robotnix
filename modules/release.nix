@@ -141,7 +141,9 @@ let
 
       export PATH=${lib.getBin pkgs.zip}/bin:${lib.getBin pkgs.unzip}/bin:$PATH
       ${pkgs.runtimeShell} ${config.source.dirs."device/common".src}/generate-factory-images-common.sh
-      mv $PRODUCT-factory-$VERSION.zip ${out}
+      # The script's own name can already be the output name (it is, in
+      # releaseScript); GNU mv refuses to move a file onto itself.
+      [ $PRODUCT-factory-$VERSION.zip -ef ${out} ] || mv $PRODUCT-factory-$VERSION.zip ${out}
     '';
 in
 {
