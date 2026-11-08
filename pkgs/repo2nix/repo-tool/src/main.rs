@@ -50,6 +50,10 @@ enum Args {
 
         #[arg(long)]
         muppets: bool,
+
+        /// Number of projects to prefetch concurrently.
+        #[arg(long, short, default_value_t = 1)]
+        jobs: usize,
     },
     GetLineageDevices {
         device_metadata_file: PathBuf,
@@ -141,6 +145,7 @@ async fn fetch(
     lineage_device_file: Vec<PathBuf>,
     missing_dep_devs_file: Option<PathBuf>,
     muppets: bool,
+    jobs: usize,
 ) -> Result<(), FetchError> {
     if muppets || lineage_device_file.len() > 0 {
         assert!(
@@ -270,7 +275,7 @@ async fn fetch(
     }
 
     lockfile
-        .update_all()
+        .update_all(jobs)
         .await
         .map_err(FetchError::UpdateLockset)?;
     lockfile
@@ -456,6 +461,7 @@ async fn main() -> Result<(), MainError> {
             lineage_device_file,
             missing_dep_devs_file,
             muppets,
+            jobs,
         } => {
             fetch(
                 manifest_url,
@@ -465,6 +471,7 @@ async fn main() -> Result<(), MainError> {
                 lineage_device_file,
                 missing_dep_devs_file,
                 muppets,
+                jobs,
             )
             .await?;
         }

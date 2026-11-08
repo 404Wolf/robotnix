@@ -5,20 +5,27 @@ set -o pipefail
 
 repo-tool get-graphene-devices -c stable -c beta -c alpha devices.json channel_info.json
 tags=$(jq -r .git_tags[] channel_info.json | sort -r)
-latest_tag=$(jq -r .git_tags[-1] channel_info.json)
+
+# Number of repos prefetched concurrently (a new Android release changes
+# ~1100 of them; one at a time that takes hours).
+jobs=${JOBS:-8}
 
 echo "Tags to fetch: $tags"
 for tag in $tags; do
   mkdir -p "$tag"
   if [ ! -e "$tag/repo.lock" ]; then
     echo "No lockfile for $tag yet."
-    if [ -e "$latest_tag/repo.lock" ]; then
-      echo "Copying from latest tag $latest_tag."
-      cp -r "$latest_tag/repo.lock" "$tag/repo.lock"
+    # Seed from the newest lockfile we have, so repos unchanged since then
+    # are reused instead of prefetched again. (The latest tag usually has
+    # no lockfile yet when it's new.)
+    seed=$(find . -mindepth 2 -maxdepth 2 -name repo.lock | sort -r | head -n 1)
+    if [ -n "$seed" ]; then
+      echo "Copying from $seed."
+      cp "$seed" "$tag/repo.lock"
     fi
   fi
   echo "Fetching lockfile for tag $tag."
-  repo-tool fetch --tag -r "$tag" https://github.com/GrapheneOS/platform_manifest "$tag/repo.lock"
+  repo-tool fetch --tag -j "$jobs" -r "$tag" https://github.com/GrapheneOS/platform_manifest "$tag/repo.lock"
   lockfiles="$lockfiles $tag/repo.lock"
 done
 

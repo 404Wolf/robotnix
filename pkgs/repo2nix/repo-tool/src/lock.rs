@@ -4,8 +4,11 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
 use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use thiserror::Error;
 use tokio::fs;
+use tokio::sync::Semaphore;
+use tokio::task::JoinSet;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Lock {
@@ -254,20 +257,53 @@ impl Lockset {
         Ok(())
     }
 
-    pub async fn update_all(&mut self) -> Result<(), UpdateLocksetError> {
-        let paths: Vec<_> = self.entries.keys().cloned().collect();
-        for (i, path) in paths.iter().enumerate() {
-            if self.entries.get(path).unwrap().project.active {
-                eprintln!(
-                    "Updating lock for `{}` ({}/{})",
-                    path.display(),
-                    i + 1,
-                    paths.len()
-                );
-                self.update(path).await?;
+    /// Update the locks of all active projects, prefetching up to `jobs` of
+    /// them at a time. The lockfile is written after every changed lock, so
+    /// an interrupted run resumes where it stopped. A failing project doesn't
+    /// stop the others; the first error is returned once all have finished.
+    pub async fn update_all(&mut self, jobs: usize) -> Result<(), UpdateLocksetError> {
+        let semaphore = Arc::new(Semaphore::new(jobs.max(1)));
+        let total = self.entries.len();
+        let mut tasks = JoinSet::new();
+        for (i, (path, entry)) in self.entries.iter().enumerate() {
+            if !entry.project.active {
+                continue;
+            }
+            let path = path.clone();
+            let project = entry.project.clone();
+            let lock = entry.lock.clone();
+            let semaphore = semaphore.clone();
+            tasks.spawn(async move {
+                let _permit = semaphore.acquire_owned().await.unwrap();
+                eprintln!("Updating lock for `{}` ({}/{})", path.display(), i + 1, total);
+                let result = update_lock(&project, &lock).await;
+                (path, result)
+            });
+        }
+
+        let mut first_error = None;
+        while let Some(joined) = tasks.join_next().await {
+            let (path, result) = joined.expect("lock update task panicked");
+            match result {
+                Ok((new_lock, updated)) => {
+                    self.entries.get_mut(&path).unwrap().lock = Some(new_lock);
+                    if updated {
+                        self.write(false).await?;
+                    }
+                }
+                Err(error) => {
+                    eprintln!("Failed to update lock for `{}`: {}", path.display(), error);
+                    first_error.get_or_insert(UpdateLocksetError::UpdateLock {
+                        project_path: path,
+                        error,
+                    });
+                }
             }
         }
-        Ok(())
+        match first_error {
+            Some(e) => Err(e),
+            None => Ok(()),
+        }
     }
 
     pub async fn ensure_store_path(&self, project_path: &Path) -> Result<(), EnsureStorePathError> {
