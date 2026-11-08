@@ -63,7 +63,7 @@ in
           4096
         ];
         internal = true;
-        description = '''';
+        description = "";
       };
 
       avbFlags = mkOption {
@@ -224,7 +224,13 @@ in
         ])
         (lib.mkIf (config.androidVersion >= 16) [
           ./0001-sign_target_files_apks-Add-pkmd-CLI-args.patch
-          ./0002-releasetools-Use-apksigner-for-most-APK-and-APEX-sig.patch
+          # Android 17 changed SignFile()'s signature (log_on_success).
+          (
+            if config.androidVersion >= 17 then
+              ./17/0002-releasetools-Use-apksigner-for-most-APK-and-APEX-sig.patch
+            else
+              ./0002-releasetools-Use-apksigner-for-most-APK-and-APEX-sig.patch
+          )
           ./0003-releasetools-add-pkcs11_mode-cli-flag.patch
           ./0004-add-public_key_map-option.patch
           ./0005-signapk-add-keyStorePinFile-option.patch
@@ -321,6 +327,11 @@ in
         "hardware.biometrics.fingerprint.virtual"
         "telephonycore"
       ]
+      ++ lib.optionals (config.androidVersion >= 17) [
+        # New in GrapheneOS 2026110200 (Android 17) script/generate-release.sh
+        "npumanager"
+        "webapp"
+      ]
     );
 
     signing = {
@@ -337,17 +348,17 @@ in
           ];
           vbmeta_chained = [
             ''--avb_vbmeta_key "${avbtoolKeyMap cfg.avb.key}"''
-            ''--avb_vbmeta_algorithm ${avbAlgorithm}''
+            "--avb_vbmeta_algorithm ${avbAlgorithm}"
             ''--avb_system_key "${avbtoolKeyMap cfg.avb.key}"''
-            ''--avb_system_algorithm ${avbAlgorithm}''
+            "--avb_system_algorithm ${avbAlgorithm}"
           ];
           vbmeta_chained_v2 = [
             ''--avb_vbmeta_key "${avbtoolKeyMap cfg.avb.key}"''
-            ''--avb_vbmeta_algorithm ${avbAlgorithm}''
+            "--avb_vbmeta_algorithm ${avbAlgorithm}"
             ''--avb_system_key "${avbtoolKeyMap cfg.avb.key}"''
-            ''--avb_system_algorithm ${avbAlgorithm}''
+            "--avb_system_algorithm ${avbAlgorithm}"
             ''--avb_vbmeta_system_key "${avbtoolKeyMap cfg.avb.key}"''
-            ''--avb_vbmeta_system_algorithm ${avbAlgorithm}''
+            "--avb_vbmeta_system_algorithm ${avbAlgorithm}"
           ];
         }
         .${cfg.avb.mode}
@@ -355,7 +366,7 @@ in
           ((config.androidVersion >= 10) && (cfg.avb.mode != "verity_only") && config.stateVersion == "1")
           [
             ''--avb_system_other_key "${avbtoolKeyMap cfg.avb.key}"''
-            ''--avb_system_other_algorithm ${avbAlgorithm}''
+            "--avb_system_other_algorithm ${avbAlgorithm}"
           ];
 
       keyMappings =
@@ -398,7 +409,15 @@ in
           "ServiceWifiResources.apk" = "${config.device}/releasekey";
           "WifiDialog.apk" = "${config.device}/releasekey";
           "Bluetooth.apk" = "${config.device}/bluetooth";
-        });
+        })
+        // (lib.optionalAttrs ((lib.versionAtLeast config.stateVersion "3") && config.androidVersion >= 17)
+          {
+            # Android 17 mainline APKs (GrapheneOS 2026110200 generate-release.sh)
+            "TelecomServiceResources.apk" = "${config.device}/releasekey";
+            "TelecomUi.apk" = "${config.device}/releasekey";
+            "WebAppService.apk" = "${config.device}/releasekey";
+          }
+        );
       extraApexPayloadKeys = builtins.listToAttrs (
         map (name: {
           name = "${name}.apex";
