@@ -28,7 +28,10 @@ let
         chmod -R u+w $out
         cd $out/vendor/adevtool
         patch -p1 < ${
-          if lib.versionAtLeast tag "2025111800" then
+          # adevtool dropped DeviceImage.isGrapheneOsImage() by 2026110200
+          if lib.versionAtLeast tag "2026110200" then
+            ./adevtool-show-metadata-json-after-2026110200.patch
+          else if lib.versionAtLeast tag "2025111800" then
             ./adevtool-show-metadata-json-after-2025111800.patch
           else
             ./adevtool-show-metadata-json.patch
