@@ -17,6 +17,12 @@ lib.mkIf (config.androidVersion == 17) {
     "external/avb".patches = [
       ./avbtool-set-perms.patch
     ];
+
+    # Signing (sign_target_files_apks -> apexer) runs outside the build
+    # sandbox, where /bin/cp and /usr/bin/fallocate need not exist.
+    "system/apex".patches = [
+      ./apexer-host-tools-on-path.patch
+    ];
   };
 
   # In https://android.googlesource.com/platform/build/+/322b51b245bc70bcbbd5538d40dd47c45565b67f,

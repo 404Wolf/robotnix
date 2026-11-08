@@ -1,0 +1,16 @@
+--- a/apexer/apexer.py
++++ b/apexer/apexer.py
+@@ -219,6 +219,13 @@
+     binary_path = os.path.join(path, binary)
+     if os.path.exists(binary_path):
+       return binary_path
++  # Absolute host tool paths (/bin/cp, /bin/ls, /usr/bin/fallocate) don't
++  # exist on every host (e.g. NixOS); fall back to looking the tool up by
++  # name on PATH.
++  if os.path.isabs(binary):
++    found = shutil.which(os.path.basename(binary))
++    if found:
++      return found
+   raise Exception('Failed to find binary ' + binary + ' in path ' +
+                   ':'.join(tool_path_list))
+ 
