@@ -34,6 +34,8 @@ pub enum UpdateLockError {
     )]
     CommitMismatch(String),
 }
+const PREFETCH_ATTEMPTS: u32 = 3;
+
 pub async fn update_lock(
     project: &Project,
     lock: &Option<Lock>,
@@ -57,13 +59,30 @@ pub async fn update_lock(
         return Ok((lock.clone().unwrap(), false));
     }
 
-    let fetch_output = nix_prefetch_git(
-        &project.repo_ref.repo_url,
-        &current_commit,
-        project.repo_ref.fetch_lfs,
-        project.repo_ref.fetch_submodules,
-    )
-    .await?;
+    // Big fetches from android.googlesource.com sometimes fail midway
+    // (dropped connections, throttling); retry those a few times.
+    let mut attempt = 1;
+    let fetch_output = loop {
+        match nix_prefetch_git(
+            &project.repo_ref.repo_url,
+            &current_commit,
+            project.repo_ref.fetch_lfs,
+            project.repo_ref.fetch_submodules,
+        )
+        .await
+        {
+            Ok(output) => break output,
+            Err(e) if attempt < PREFETCH_ATTEMPTS => {
+                eprintln!(
+                    "Prefetching `{}` failed (attempt {attempt}/{PREFETCH_ATTEMPTS}), retrying: {e}",
+                    project.repo_ref.repo_url
+                );
+                tokio::time::sleep(std::time::Duration::from_secs(10 * attempt as u64)).await;
+                attempt += 1;
+            }
+            Err(e) => return Err(e.into()),
+        }
+    };
 
     if current_commit != fetch_output.rev {
         return Err(UpdateLockError::CommitMismatch(
@@ -292,7 +311,13 @@ impl Lockset {
                     }
                 }
                 Err(error) => {
-                    eprintln!("Failed to update lock for `{}`: {}", path.display(), error);
+                    let mut message = error.to_string();
+                    let mut source = std::error::Error::source(&error);
+                    while let Some(s) = source {
+                        message.push_str(&format!(": {s}"));
+                        source = s.source();
+                    }
+                    eprintln!("Failed to update lock for `{}`: {}", path.display(), message);
                     first_error.get_or_insert(UpdateLocksetError::UpdateLock {
                         project_path: path,
                         error,
